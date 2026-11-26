@@ -232,6 +232,7 @@
       <input type="checkbox" id="cacheChk" /> Remember data in this browser
     </label>
     <button class="btn" id="driveBtn" title="Sign in to Google Drive for this session; data is stored encrypted">Connect Google Drive</button>
+    <button class="btn" id="driveSwitchBtn" style="display:none" title="Open or create another encrypted dataset in Google Drive">Switch dataset</button>
     <button class="btn" id="backupBtn" title="Download all stored data, edits and rules as JSON">Backup JSON</button>
     <label class="btn" for="restoreInput" title="Merge a backup JSON into the stored data">Restore JSON</label>
     <input id="restoreInput" type="file" accept=".json" style="display:none" />
@@ -396,6 +397,18 @@
     <button class="btn" id="passCancel" type="button">Cancel</button>
     <button class="btn btn-primary" id="passOk" type="button">OK</button>
   </div>
+</dialog>
+
+<dialog id="dsDialog">
+  <div style="font-weight:600;margin-bottom:8px;">Choose a Google Drive dataset</div>
+  <div id="dsList" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;margin-bottom:12px;min-width:300px;"></div>
+  <div style="font-size:0.8rem;color:var(--muted);margin-bottom:4px;">Or create a new one (each dataset has its own passphrase):</div>
+  <div style="display:flex;gap:6px;margin-bottom:6px;">
+    <input type="text" id="dsNewName" placeholder="e.g. Personal, Demo" style="flex:1;" maxlength="40" />
+    <button class="btn btn-primary" id="dsCreate" type="button">Create</button>
+  </div>
+  <div id="dsErr" style="color:var(--red);font-size:0.8rem;min-height:1em;margin-bottom:8px;"></div>
+  <div style="display:flex;justify-content:flex-end;"><button class="btn" id="dsCancel" type="button">Cancel</button></div>
 </dialog>
 
 <script>
@@ -1396,7 +1409,7 @@ document.getElementById("restoreInput").addEventListener("change", async e => {
 
 document.getElementById("clearBtn").addEventListener("click", async () => {
   const extra = (fileHandle ? ` The linked file "${fileHandle.name}" will be emptied too.` : "") +
-    (drive.ready ? " Your encrypted Google Drive file will be emptied too." : "");
+    (drive.ready ? ` The Google Drive dataset "${drive.name}" will be emptied too (other datasets are not touched).` : "");
   if (!confirm("Delete ALL stored transactions, edits and rules?" + extra + " Consider using Backup JSON first.")) return;
   rawBank = []; rawCard = []; overrides = {}; rules = {};
   [DATA_KEY, STORAGE_KEY, RULES_KEY].forEach(k => localStorage.removeItem(k));
@@ -1409,10 +1422,15 @@ document.getElementById("clearBtn").addEventListener("click", async () => {
 // --- Google Drive (session-only sign-in, AES-GCM encrypted file) ---
 // Paste your OAuth Client ID (Web application) here. See setup steps in the chat / README.
 const GOOGLE_CLIENT_ID = "745840208658-aqm7n69ei6tmrl2j7l5gmnnu1imopmoh.apps.googleusercontent.com";
-const DRIVE_FILE_NAME = "finance_data.enc.json";
+const DEFAULT_DATASET = "Default";
+const driveFileName = name => name === DEFAULT_DATASET ? "finance_data.enc.json" : `finance_data__${name}.enc.json`;
+const datasetFromFileName = fn => {
+  const m = /^finance_data(?:__(.+))?\.enc\.json$/.exec(fn);
+  return m ? (m[1] || DEFAULT_DATASET) : null;
+};
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const PBKDF2_ITER = 250000;
-const drive = { token: null, fileId: null, key: null, salt: null, iter: PBKDF2_ITER, timer: null, ready: false };
+const drive = { token: null, fileId: null, name: null, key: null, salt: null, iter: PBKDF2_ITER, timer: null, ready: false };
 
 function setDriveStatus(text, ok) {
   const b = document.getElementById("driveBadge");
@@ -1421,6 +1439,7 @@ function setDriveStatus(text, ok) {
 }
 function setDriveButton() {
   document.getElementById("driveBtn").textContent = drive.ready ? "Disconnect Google Drive" : "Connect Google Drive";
+  document.getElementById("driveSwitchBtn").style.display = drive.ready ? "" : "none";
 }
 
 const b64e = buf => {
@@ -1478,11 +1497,11 @@ async function driveFetch(url, opts = {}) {
   if (!r.ok) throw new Error("Drive error " + r.status);
   return r;
 }
-async function driveFindFile() {
-  const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
-  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&orderBy=modifiedTime%20desc`);
+async function driveListFiles() {
+  const q = encodeURIComponent("name contains 'finance_data' and trashed=false");
+  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&orderBy=name`);
   const j = await r.json();
-  return j.files && j.files[0] ? j.files[0].id : null;
+  return (j.files || []).map(f => ({ id: f.id, name: datasetFromFileName(f.name), modified: f.modifiedTime })).filter(f => f.name);
 }
 async function driveUpload(body) {
   if (drive.fileId) {
@@ -1491,7 +1510,7 @@ async function driveUpload(body) {
     return;
   }
   const boundary = "fin" + Date.now();
-  const meta = JSON.stringify({ name: DRIVE_FILE_NAME, mimeType: "application/json" });
+  const meta = JSON.stringify({ name: driveFileName(drive.name), mimeType: "application/json" });
   const multipart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
   const r = await driveFetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
@@ -1499,23 +1518,26 @@ async function driveUpload(body) {
   drive.fileId = (await r.json()).id;
 }
 
+async function driveSaveNow() {
+  clearTimeout(drive.timer);
+  if (!drive.ready) return;
+  try {
+    setDriveStatus("saving...", false);
+    await driveUpload(await encryptPayload({ bank: rawBank, card: rawCard, overrides, rules }));
+    if (drive.ready) setDriveStatus(`saved (encrypted) - ${drive.name}`, true);
+  } catch (e) {
+    if (drive.ready) setDriveStatus("save failed - " + e.message, false);
+  }
+}
 function scheduleDriveSave() {
   if (!drive.ready) return;
   clearTimeout(drive.timer);
-  drive.timer = setTimeout(async () => {
-    try {
-      setDriveStatus("saving...", false);
-      await driveUpload(await encryptPayload({ bank: rawBank, card: rawCard, overrides, rules }));
-      if (drive.ready) setDriveStatus("saved (encrypted)", true);
-    } catch (e) {
-      if (drive.ready) setDriveStatus("save failed - " + e.message, false);
-    }
-  }, 1200);
+  drive.timer = setTimeout(driveSaveNow, 1200);
 }
 
 function driveReset() {
   clearTimeout(drive.timer);
-  drive.token = null; drive.fileId = null; drive.key = null; drive.salt = null; drive.ready = false;
+  drive.token = null; drive.fileId = null; drive.name = null; drive.key = null; drive.salt = null; drive.ready = false;
   setDriveButton();
 }
 function driveExpired() {
@@ -1529,34 +1551,74 @@ function disconnectDrive(message) {
   setDriveStatus(message || "not connected", false);
 }
 
+function chooseDataset(files) {
+  return new Promise(resolve => {
+    const $ = id => document.getElementById(id);
+    const dlg = $("dsDialog"), list = $("dsList"), nameIn = $("dsNewName"), err = $("dsErr");
+    list.innerHTML = files.length
+      ? files.map((f, i) => `<button class="btn ds-item" type="button" data-i="${i}">${escapeHtml(f.name)} <span class="note">${(f.modified || "").slice(0, 10)}</span></button>`).join("")
+      : `<div class="empty">No saved datasets yet.</div>`;
+    nameIn.value = ""; err.textContent = "";
+    const done = v => { dlg.close(); dlg.oncancel = null; resolve(v); };
+    list.querySelectorAll("[data-i]").forEach(b => { b.onclick = () => done({ file: files[+b.dataset.i] }); });
+    $("dsCreate").onclick = () => {
+      const n = nameIn.value.trim();
+      if (!/^[A-Za-z0-9 _-]{1,40}$/.test(n)) { err.textContent = "Use 1-40 letters, numbers, spaces, - or _."; return; }
+      if (files.some(f => f.name.toLowerCase() === n.toLowerCase())) { err.textContent = "That name already exists."; return; }
+      done({ newName: n });
+    };
+    $("dsCancel").onclick = () => done(null);
+    dlg.oncancel = e => { e.preventDefault(); done(null); };
+    dlg.showModal();
+  });
+}
+
+async function openDatasetFlow(switching) {
+  setDriveStatus("looking for datasets...", false);
+  const files = await driveListFiles();
+  const choice = await chooseDataset(files);
+  if (!choice) return false;
+  const hasData = rawBank.length || rawCard.length || Object.keys(overrides).length || Object.keys(rules).length;
+  const clearMemory = () => { rawBank = []; rawCard = []; overrides = {}; rules = {}; };
+
+  if (choice.file) {
+    const env = await (await driveFetch(`https://www.googleapis.com/drive/v3/files/${choice.file.id}?alt=media`)).json();
+    let res = null;
+    for (let i = 0; i < 3 && !res; i++) {
+      const pass = await askPassphrase(i ? "Wrong passphrase. Try again." : `Enter the passphrase for "${choice.file.name}".`, false);
+      if (!pass) return false;
+      try { res = await decryptEnvelope(env, pass); } catch (e) {}
+    }
+    if (!res) return false;
+    let merge = false;
+    if (!switching && hasData) {
+      merge = confirm(`You already have data loaded in this tab.\n\nOK = merge it into "${choice.file.name}"\nCancel = discard it and open only "${choice.file.name}"`);
+    }
+    if (!merge) clearMemory();
+    mergePayload(res.payload);
+    drive.fileId = choice.file.id; drive.name = choice.file.name;
+    drive.key = res.key; drive.salt = res.salt; drive.iter = res.iter;
+  } else {
+    const pass = await askPassphrase(`Create a passphrase for the new dataset "${choice.newName}". If you forget it, this dataset cannot be recovered.`, true);
+    if (!pass) return false;
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKey(pass, salt, PBKDF2_ITER);
+    if (switching) clearMemory();
+    drive.fileId = null; drive.name = choice.newName;
+    drive.salt = salt; drive.iter = PBKDF2_ITER; drive.key = key;
+  }
+  drive.ready = true;
+  setDriveButton();
+  setDriveStatus(`connected - ${drive.name}`, true);
+  updateBadges();
+  rebuildLedger();
+  savePayload();
+  return true;
+}
+
 async function driveAfterSignIn() {
   try {
-    setDriveStatus("looking for data file...", false);
-    drive.fileId = await driveFindFile();
-    if (drive.fileId) {
-      const env = await (await driveFetch(`https://www.googleapis.com/drive/v3/files/${drive.fileId}?alt=media`)).json();
-      let res = null;
-      for (let i = 0; i < 3 && !res; i++) {
-        const pass = await askPassphrase(i ? "Wrong passphrase. Try again." : "Enter your passphrase to unlock your data in Google Drive.", false);
-        if (!pass) { disconnectDrive("cancelled"); return; }
-        try { res = await decryptEnvelope(env, pass); } catch (e) {}
-      }
-      if (!res) { disconnectDrive("could not unlock"); return; }
-      drive.key = res.key; drive.salt = res.salt; drive.iter = res.iter;
-      mergePayload(res.payload);
-    } else {
-      const pass = await askPassphrase("Create a passphrase to encrypt your data in Google Drive. If you forget it, the data cannot be recovered.", true);
-      if (!pass) { disconnectDrive("cancelled"); return; }
-      drive.salt = crypto.getRandomValues(new Uint8Array(16));
-      drive.iter = PBKDF2_ITER;
-      drive.key = await deriveKey(pass, drive.salt, drive.iter);
-    }
-    drive.ready = true;
-    setDriveButton();
-    setDriveStatus("connected", true);
-    updateBadges();
-    rebuildLedger();
-    savePayload();
+    if (!(await openDatasetFlow(false))) disconnectDrive("cancelled");
   } catch (e) {
     if (drive.token) disconnectDrive("error - " + e.message);
   }
@@ -1590,6 +1652,16 @@ function connectDrive() {
 
 document.getElementById("driveBtn").addEventListener("click", () => {
   if (drive.ready) disconnectDrive(); else connectDrive();
+});
+document.getElementById("driveSwitchBtn").addEventListener("click", async () => {
+  if (!drive.ready) return;
+  const prev = drive.name;
+  try {
+    await driveSaveNow();
+    if (!(await openDatasetFlow(true)) && drive.ready) setDriveStatus(`connected - ${prev}`, true);
+  } catch (e) {
+    if (drive.ready) setDriveStatus("error - " + e.message, false);
+  }
 });
 window.addEventListener("pagehide", () => {
   if (drive.token && window.google && google.accounts) google.accounts.oauth2.revoke(drive.token, () => {});

@@ -407,6 +407,8 @@ const CATEGORIES = [
   "Groceries",
   "Dining & Cafes",
   "Transport & Travel",
+  "Hotels & Lodging",
+  "Holidays & Flights",
   "Health & Insurance",
   "Telecom & Internet",
   "Shopping & Home",
@@ -741,8 +743,18 @@ function classifyBankTx(row) {
   ) return "Telecom & Internet";
 
   if (
+    (full.includes("hotel") && !full.includes("hotelplan")) || full.includes("airbnb") || full.includes("booking.com") || full.includes("hostel")
+  ) return "Hotels & Lodging";
+
+  if (
+    full.includes("swiss international") || full.includes("lufthansa") || full.includes("easyjet") ||
+    full.includes("edelweiss") || full.includes("ryanair") || full.includes("expedia") ||
+    full.includes("hotelplan") || full.includes("kuoni") || full.includes("flight")
+  ) return "Holidays & Flights";
+
+  if (
     full.includes("sbb") || full.includes("bls") || full.includes("bernmobil") ||
-    full.includes("postauto") || full.includes("easyride") || full.includes("swiss international")
+    full.includes("postauto") || full.includes("easyride")
   ) return "Transport & Travel";
 
   if (full.includes("steuer") || full.includes("tax") || full.includes("gemeinde") || full.includes("fisca")) {
@@ -787,9 +799,20 @@ function classifyCardTx(row) {
   ) return "Dining & Cafes";
 
   if (
+    sector.includes("hotel") || sector.includes("lodging") || sector.includes("motel") || sector.includes("resort") ||
+    text.includes("hotel") || text.includes("airbnb") || text.includes("booking.com") || text.includes("hostel")
+  ) return "Hotels & Lodging";
+
+  if (
+    sector.includes("airline") || sector.includes("airport") || sector.includes("travel agenc") ||
+    sector.includes("tour operator") || sector.includes("car rental") || sector.includes("cruise") ||
+    text.includes("swiss international") || text.includes("lufthansa") || text.includes("easyjet") ||
+    text.includes("edelweiss") || text.includes("ryanair") || text.includes("expedia") || text.includes("flixbus")
+  ) return "Holidays & Flights";
+
+  if (
     sector.includes("commuter") || sector.includes("railway") || sector.includes("taxi") ||
-    sector.includes("bus") || sector.includes("parking") || sector.includes("airport") ||
-    sector.includes("hotel") || sector.includes("travel") || sector.includes("gasoline") ||
+    sector.includes("bus") || sector.includes("parking") || sector.includes("gasoline") ||
     text.includes("sbb") || text.includes("uber") || text.includes("bolt")
   ) return "Transport & Travel";
 

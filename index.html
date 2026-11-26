@@ -59,6 +59,16 @@
   .btn:hover { border-color: var(--accent); }
   .btn-primary { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
   .container { max-width: 1440px; margin: 0 auto; padding: 20px 24px 48px; }
+  .tabs { display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 10px 14px; font-size: 0.88rem; font-weight: 600; cursor: pointer; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .readme { max-width: 860px; }
+  .readme h2 { margin: 26px 0 8px; font-size: 1.1rem; color: var(--accent); }
+  .readme h3 { margin: 16px 0 4px; font-size: 0.95rem; }
+  .readme p, .readme li { font-size: 0.9rem; color: #cbd5e1; }
+  .readme code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 0.84rem; }
+  .readme .callout { background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.25); border-radius: 10px; padding: 10px 14px; margin: 10px 0; }
 
   /* Dropzone / Upload Bar */
   .upload-bar {
@@ -220,7 +230,7 @@
 <header>
   <div>
     <h1>CHF Financial & Savings Dashboard</h1>
-    <p>Deduplicated Bank + Credit Card Ledger with Live Recategorization</p>
+    <p>Load your bank and credit-card CSV exports to see categorized spending, savings and trends in CHF. Everything runs in your browser and your data stays private.</p>
   </div>
   <div class="toolbar">
     <label class="btn btn-primary" for="fileInput">+ Load CSV Files</label>
@@ -240,10 +250,15 @@
   </div>
 </header>
 
-<div class="container">
+<nav class="tabs">
+  <button class="tab active" id="tabDash" type="button">Dashboard</button>
+  <button class="tab" id="tabReadme" type="button">README / How to use</button>
+</nav>
+
+<div class="container" id="dashView">
   <div class="upload-bar" id="uploadBar">
     <div class="status" id="fileStatus">
-      Select both <strong>prateek_transactions_20261125134310.csv</strong> and <strong>combined_invoices.csv</strong> using <em>+ Load CSV Files</em> above (or drag & drop them anywhere on this page).
+      Drop your <strong>bank transactions CSV</strong> and <strong>card invoice CSV(s)</strong> here, or use <em>+ Load CSV Files</em> above. The file type is detected automatically, and duplicates are skipped.
     </div>
     <div>
       <span class="badge badge-warn" id="bankBadge">Bank CSV: Waiting</span>
@@ -386,6 +401,80 @@
       <div class="table-wrap" style="max-height:320px;" id="rulesWrap"></div>
     </div>
   </div>
+</div>
+
+<div class="container readme" id="readmeView" style="display:none">
+  <h2>What this app does</h2>
+  <p>It turns your bank and credit-card CSV exports into one categorized ledger in CHF, with charts for income, spending and savings, trends, recurring payments and unusual transactions. It runs entirely in your browser. Nothing is sent to a server, and the page only talks to Google if you choose to connect Google Drive.</p>
+
+  <h2>Quick start</h2>
+  <ol>
+    <li>Click <strong>+ Load CSV Files</strong> (or drag files onto the page) and add your <strong>bank transactions</strong> export and your <strong>card invoice</strong> file(s). You can select several at once.</li>
+    <li>Use the <strong>date slider</strong> above the ledger to choose a period, and the filters to narrow the view.</li>
+    <li>Fix any wrong category right in the ledger. The app can remember the fix for that merchant.</li>
+    <li>Decide how to keep your data (see <em>Saving your data</em>) so you do not have to re-upload.</li>
+  </ol>
+
+  <h2>Supported files</h2>
+  <ul>
+    <li><strong>Bank transactions:</strong> a semicolon-separated export with a <code>Trade date;</code> header row (the format used by the bank this dashboard was built for).</li>
+    <li><strong>Card invoice:</strong> a semicolon-separated file with <code>Booking text</code> and <code>Card number</code> columns, optionally starting with <code>sep=;</code>.</li>
+    <li>The file type and text encoding are detected from the contents, so filenames do not matter. Unrecognized files are ignored with a message.</li>
+    <li>Other banks' formats are not supported yet.</li>
+  </ul>
+
+  <h2>Adding new data and duplicates</h2>
+  <p>Load new files any time. Each transaction is compared with what is already stored (by transaction number or by date, merchant and amount). Existing ones are skipped and new ones are added, and the status line tells you how many of each. Two identical purchases on the same day are both kept.</p>
+
+  <h2>Card settlements are not double-counted</h2>
+  <p>Payments from your bank account to your card, and the matching credits on the card invoice, are put in <code>Excluded (Card Settlement)</code> so the itemized card purchases are not counted twice. They stay visible: choose that category in the filter, or tick <em>Show excluded duplicates</em>.</p>
+
+  <h2>Filters and the ledger</h2>
+  <ul>
+    <li><strong>Date range:</strong> drag the two slider handles or type exact dates. <em>All</em> resets it. The range applies to the KPIs, all charts and the ledger.</li>
+    <li><strong>Category, source and search</strong> filter the ledger table. The line chart and pie chart below the ledger always show exactly the rows the ledger shows. The pie can be grouped by category, merchant or source.</li>
+    <li>Refunds and reimbursements reduce spending instead of counting as income. Only salary-type credits count as income.</li>
+  </ul>
+
+  <h2>Recategorizing and rules</h2>
+  <p>Change the category in any ledger row. If other transactions from the same merchant have a different category, the app asks whether to apply the change to all of them and remember it as a rule for future uploads. Rules are listed under <em>Saved Category Rules</em> where you can delete them. <em>Reset Edits</em> clears all your edits and rules.</p>
+
+  <h2>Insights below the ledger</h2>
+  <ul>
+    <li><strong>Month-over-month:</strong> the latest month in your range against the previous month and the average of earlier months, per category.</li>
+    <li><strong>Cumulative savings and forecast:</strong> income minus spending over time with a straight-line trend 3 months ahead. The latest month may be incomplete, which can skew the trend.</li>
+    <li><strong>Top merchants</strong> and <strong>Recurring / subscriptions</strong> (3+ months, similar amounts).</li>
+    <li><strong>Unusual transactions:</strong> large outliers within a category and large one-off payments.</li>
+  </ul>
+
+  <h2>Saving your data</h2>
+  <p>Pick what suits you. They can be combined.</p>
+  <h3>1. Remember data in this browser (checkbox)</h3>
+  <p>Ticked: a copy is kept in this browser so it is there next time. Unticked: nothing is stored in the browser, any existing local copy is erased, and your data lives only while the tab is open. You will be warned before closing if it has not been saved anywhere else. Untick it on shared computers.</p>
+  <h3>2. Google Drive (encrypted, per session)</h3>
+  <p><strong>Connect Google Drive</strong> signs you in for this session only. Your data is encrypted in your browser with a passphrase you choose (AES-256) before it is uploaded, so Google stores only ciphertext. The app can only see files it created. You can keep several named <strong>datasets</strong> (for example Personal and Demo), each with its own passphrase, and pick one when you connect or with <em>Switch dataset</em>. Closing the tab or clicking Disconnect ends the session.</p>
+  <div class="callout">If you forget a dataset's passphrase it cannot be recovered. To delete a dataset, delete its <code>finance_data*.enc.json</code> file in Google Drive.</div>
+  <h3>3. Link data file (Chrome or Edge, opened as a normal page)</h3>
+  <p>Saves your data to a JSON file you choose on your computer and reads it back next time. This is not encrypted.</p>
+  <h3>4. Backup JSON / Restore JSON / Clear Data</h3>
+  <p><strong>Backup JSON</strong> downloads everything (transactions, edits, rules) as a file, which is not encrypted, so store it safely. <strong>Restore JSON</strong> merges a backup into what is loaded. <strong>Clear Data</strong> deletes the stored data, including the open Google Drive dataset and the linked file if any.</p>
+
+  <h2>Privacy</h2>
+  <ul>
+    <li>Your CSVs are processed locally in your browser. The page itself contains no data.</li>
+    <li>Google Drive is used only if you click Connect, and only for the encrypted dataset file.</li>
+    <li>This tool is for personal bookkeeping. Categories are automatic guesses, so check them, and it is not financial advice.</li>
+  </ul>
+
+  <h2>Troubleshooting</h2>
+  <ul>
+    <li><strong>Data did not come back next time:</strong> the browser copy is off (checkbox) or the browser blocks storage. Connect Google Drive or use Backup JSON.</li>
+    <li><strong>Link data file does nothing:</strong> use Chrome or Edge, and open the dashboard as its own page, not embedded in another site.</li>
+    <li><strong>Google sign-in error "access_denied":</strong> your account must be allowed to use the app.</li>
+    <li><strong>Google sign-in error "origin_mismatch":</strong> the page address is not registered with the app. Settings can take a while to apply.</li>
+    <li><strong>A file is "not recognized":</strong> it must be the semicolon-separated bank or card export described above.</li>
+    <li><strong>Wrong numbers right after loading:</strong> check for incomplete months and recategorize anything misclassified.</li>
+  </ul>
 </div>
 
 <dialog id="passDialog">
@@ -1666,6 +1755,18 @@ document.getElementById("driveSwitchBtn").addEventListener("click", async () => 
 window.addEventListener("pagehide", () => {
   if (drive.token && window.google && google.accounts) google.accounts.oauth2.revoke(drive.token, () => {});
 });
+
+function showTab(which) {
+  const dash = which === "dash";
+  document.getElementById("dashView").style.display = dash ? "" : "none";
+  document.getElementById("readmeView").style.display = dash ? "none" : "";
+  document.getElementById("tabDash").classList.toggle("active", dash);
+  document.getElementById("tabReadme").classList.toggle("active", !dash);
+  if (dash) [monthlyChart, categoryChart, ledgerChart, pieChart, cumChart].forEach(c => { if (c) c.resize(); });
+  window.scrollTo(0, 0);
+}
+document.getElementById("tabDash").addEventListener("click", () => showTab("dash"));
+document.getElementById("tabReadme").addEventListener("click", () => showTab("readme"));
 
 const cacheChk = document.getElementById("cacheChk");
 cacheChk.checked = cacheLocal;

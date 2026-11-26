@@ -64,6 +64,8 @@
   .tab:hover { color: var(--text); }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
   .readme { max-width: 860px; }
+  .site-footer { text-align: center; padding: 18px 24px 30px; font-size: 0.78rem; color: var(--muted); }
+  .site-footer a { color: var(--accent); }
   .readme h2 { margin: 26px 0 8px; font-size: 1.1rem; color: var(--accent); }
   .readme h3 { margin: 16px 0 4px; font-size: 0.95rem; }
   .readme p, .readme li { font-size: 0.9rem; color: #cbd5e1; }
@@ -464,6 +466,7 @@
     <li>Your CSVs are processed locally in your browser. The page itself contains no data.</li>
     <li>Google Drive is used only if you click Connect, and only for the encrypted dataset file.</li>
     <li>This tool is for personal bookkeeping. Categories are automatic guesses, so check them, and it is not financial advice.</li>
+    <li>Read the <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a> and the <a href="terms.html" target="_blank" rel="noopener">Terms &amp; Disclaimer</a>.</li>
   </ul>
 
   <h2>Troubleshooting</h2>
@@ -476,6 +479,12 @@
     <li><strong>Wrong numbers right after loading:</strong> check for incomplete months and recategorize anything misclassified.</li>
   </ul>
 </div>
+
+<footer class="site-footer">
+  <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a> &middot;
+  <a href="terms.html" target="_blank" rel="noopener">Terms &amp; Disclaimer</a> &middot;
+  Not financial advice. Your data is processed in your browser.
+</footer>
 
 <dialog id="passDialog">
   <p id="passMsg" style="margin:0 0 10px;max-width:340px;font-size:0.88rem;"></p>

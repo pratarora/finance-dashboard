@@ -228,6 +228,9 @@
     <button class="btn" id="linkFileBtn" title="Save data to a JSON file in your folder (Chrome/Edge)">Link data file</button>
     <button class="btn" id="exportCsvBtn">Export Categorized CSV</button>
     <button class="btn" id="resetOverridesBtn">Reset Edits</button>
+    <label class="btn" style="display:flex;align-items:center;gap:6px;cursor:pointer;" title="When unticked, nothing is stored in this browser and any local copy is erased">
+      <input type="checkbox" id="cacheChk" /> Remember data in this browser
+    </label>
     <button class="btn" id="driveBtn" title="Sign in to Google Drive for this session; data is stored encrypted">Connect Google Drive</button>
     <button class="btn" id="backupBtn" title="Download all stored data, edits and rules as JSON">Backup JSON</button>
     <label class="btn" for="restoreInput" title="Merge a backup JSON into the stored data">Restore JSON</label>
@@ -416,8 +419,19 @@ const CATEGORIES = [
 const EXCLUDED_CAT = "Excluded (Card Settlement)";
 const STORAGE_KEY = "prateek_finance_overrides_v1";
 const DATA_KEY = "prateek_finance_data_v2";
-let overrides = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+const CACHE_PREF_KEY = "prateek_finance_cache_pref";
 const RULES_KEY = "prateek_finance_rules_v1";
+let cachePref = localStorage.getItem(CACHE_PREF_KEY);
+if (cachePref === null) cachePref = localStorage.getItem(DATA_KEY) ? "1" : "0";
+let cacheLocal = cachePref === "1";
+
+function wipeLocalCopies() {
+  try { [DATA_KEY, STORAGE_KEY, RULES_KEY].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+  idbDel("data").catch(() => {});
+}
+if (!cacheLocal) wipeLocalCopies();
+
+let overrides = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
 let rules = JSON.parse(localStorage.getItem(RULES_KEY) || "{}");
 
 function merchantKey(t) {
@@ -427,10 +441,12 @@ function merchantKey(t) {
 }
 
 function saveMeta() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
-    localStorage.setItem(RULES_KEY, JSON.stringify(rules));
-  } catch (e) {}
+  if (cacheLocal) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
+      localStorage.setItem(RULES_KEY, JSON.stringify(rules));
+    } catch (e) {}
+  }
   savePayload();
 }
 const stored = JSON.parse(localStorage.getItem(DATA_KEY) || "{}");
@@ -537,11 +553,23 @@ async function idbSet(key, val) {
   });
 }
 
+async function idbDel(key) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").delete(key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
 async function savePayload() {
   const payload = { bank: rawBank, card: rawCard, overrides, rules };
   const ok = [];
-  try { localStorage.setItem(DATA_KEY, JSON.stringify(payload)); ok.push("browser storage"); } catch (e) {}
-  try { await idbSet("data", payload); ok.push("IndexedDB"); } catch (e) {}
+  if (cacheLocal) {
+    try { localStorage.setItem(DATA_KEY, JSON.stringify(payload)); ok.push("browser storage"); } catch (e) {}
+    try { await idbSet("data", payload); ok.push("IndexedDB"); } catch (e) {}
+  }
   if (fileHandle) {
     try {
       const w = await fileHandle.createWritable();
@@ -595,7 +623,7 @@ async function linkDataFile() {
 async function initPersistence() {
   let changed = false;
   try {
-    const p = await idbGet("data");
+    const p = cacheLocal ? await idbGet("data") : null;
     if (p && mergePayload(p)) changed = true;
   } catch (e) {}
   try {
@@ -1544,6 +1572,28 @@ window.addEventListener("pagehide", () => {
   if (drive.token && window.google && google.accounts) google.accounts.oauth2.revoke(drive.token, () => {});
 });
 
+const cacheChk = document.getElementById("cacheChk");
+cacheChk.checked = cacheLocal;
+cacheChk.addEventListener("change", () => {
+  cacheLocal = cacheChk.checked;
+  try { localStorage.setItem(CACHE_PREF_KEY, cacheLocal ? "1" : "0"); } catch (e) {}
+  const status = document.getElementById("fileStatus");
+  if (cacheLocal) {
+    savePayload();
+    status.textContent = "Data will be remembered in this browser.";
+  } else {
+    wipeLocalCopies();
+    status.textContent = "Browser caching is off and the local copy was erased." +
+      ((drive.ready || fileHandle) ? "" : " Your data now exists only until you close this tab. Use Backup JSON or connect Google Drive to keep it.");
+  }
+});
+window.addEventListener("beforeunload", e => {
+  if (!cacheLocal && !drive.ready && !fileHandle && (rawBank.length || rawCard.length)) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+
 let ledgerChart = null;
 function renderLedgerChart(list) {
   const dated = list.filter(t => t.date && t.date !== "1970-01-01");
@@ -1628,7 +1678,10 @@ function handleFiles(fileList) {
       persistData().then(ok => {
         status.textContent =
           `${file.name} (${label}): ${r.added} new transactions added, ${r.skipped} duplicates skipped. ` +
-          (ok.length ? `Saved to: ${ok.join(", ")}.` : "WARNING: could not save - use Link data file.");
+          (ok.length ? `Saved to: ${ok.join(", ")}.`
+            : drive.ready ? "Saving to Google Drive (encrypted)..."
+            : cacheLocal ? "WARNING: could not save - use Link data file."
+            : "Kept in memory only (browser caching is off). Connect Google Drive or use Backup JSON before closing.");
       });
     };
     reader.readAsArrayBuffer(file);
